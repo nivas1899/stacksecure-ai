@@ -13,6 +13,7 @@ const SecuritySettings = lazy(() => import('pages/security-settings'));
 const Vulnerabilities = lazy(() => import('pages/vulnerabilities'));
 const Signin = lazy(() => import('pages/authentication/Signin'));
 const Signup = lazy(() => import('pages/authentication/Signup'));
+const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '/';
 
 const router = createBrowserRouter(
   [
@@ -73,7 +74,7 @@ const router = createBrowserRouter(
     },
   ],
   {
-    basename: '/dnx',
+    basename: routerBasename,
   },
 );
 

@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
@@ -21,12 +22,16 @@ const filterTechOptions = createFilterOptions<StackTech>({
 
 const StackAnalyzer = () => {
   const { mode } = useThemeMode();
+  const [availableTechs, setAvailableTechs] = useState<StackTech[]>(stackTechs);
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [analysisReady, setAnalysisReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchValue, setSearchValue] = useState<StackTech | null>(null);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
+
+  const [searchParams] = useSearchParams();
+  const processedDetect = useRef(false);
 
   useEffect(() => {
     if (analysisReady && resultsRef.current) {
@@ -36,9 +41,68 @@ const StackAnalyzer = () => {
     }
   }, [analysisReady]);
 
+  // Handle auto-detection from sessionStorage or URL
+  useEffect(() => {
+    if (processedDetect.current) return;
+    processedDetect.current = true;
+
+    const pendingSt = sessionStorage.getItem('pendingAnalysis');
+    const toSelect: Record<string, string> = {};
+    const newTechs: StackTech[] = [];
+
+    if (pendingSt) {
+      try {
+        const parsed = JSON.parse(pendingSt);
+        parsed.forEach((t: { id: string; name: string; category?: string; version?: string }) => {
+          const exists = stackTechs.find(existing => existing.id === t.id);
+          if (exists) {
+            toSelect[exists.id] = exists.versions[0];
+          } else {
+            // Generate dynamic StackTech for unknown Wappalyzer hits
+            const customTech: StackTech = {
+              id: t.id,
+              name: t.name,
+              packageName: t.id,
+              ecosystem: 'npm', // Generic fallback
+              category: t.category || 'Miscellaneous',
+              icon: 'hugeicons:layer', // Generic placeholder icon
+              versions: [t.version || '0.0.0'],
+              knownVulns: [] // Empty vulns trigger our AI fallback gracefully
+            };
+            newTechs.push(customTech);
+            toSelect[customTech.id] = customTech.versions[0];
+          }
+        });
+        sessionStorage.removeItem('pendingAnalysis');
+      } catch (e) {
+        console.error('Failed to parse pending analysis', e);
+      }
+    } else {
+      // Fallback to URL params if any
+      const detectIds = searchParams.get('detect');
+      if (detectIds) {
+        detectIds.split(',').forEach(id => {
+          const tech = stackTechs.find(t => t.id === id.trim());
+          if (tech) toSelect[tech.id] = tech.versions[0];
+        });
+      }
+    }
+
+    if (newTechs.length > 0) {
+      setAvailableTechs(prev => [...prev, ...newTechs]);
+    }
+
+    if (Object.keys(toSelect).length > 0) {
+      setSelected(toSelect);
+      setTimeout(() => {
+        handleAnalyze();
+      }, 300);
+    }
+  }, [searchParams]);
+
   const selectedTechs = useMemo(
-    () => stackTechs.filter((t) => !!selected[t.id]),
-    [selected],
+    () => availableTechs.filter((t) => !!selected[t.id]),
+    [selected, availableTechs],
   );
 
   const handleSelect = (techId: string, version: string) => {
@@ -102,12 +166,13 @@ const StackAnalyzer = () => {
             </Typography>
           </Stack>
           <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 600 }}>
-            Select your tech stack, then run an analysis to detect vulnerabilities and attack vectors.
+            Select one or more technologies to run an AI-assisted vulnerability review with live OSV
+            data, severity, impact, and safe remediation guidance across all supported stacks.
           </Typography>
         </Stack>
 
         <Autocomplete
-          options={stackTechs}
+          options={availableTechs}
           getOptionLabel={(option) => option.name}
           filterOptions={filterTechOptions}
           value={searchValue}
@@ -282,7 +347,7 @@ const StackAnalyzer = () => {
               Select Technologies
             </Typography>
             <Typography variant="subtitle2" color="text.secondary">
-              {selectedTechs.length} / {stackTechs.length} selected
+              {selectedTechs.length} / {stackTechs.length} supported stacks selected
             </Typography>
           </Stack>
           <Button
@@ -375,7 +440,7 @@ const StackAnalyzer = () => {
             <Stack minHeight={300} alignItems="center" justifyContent="center" spacing={2}>
               <CircularProgress color="primary" />
               <Typography variant="body2" color="text.secondary">
-                Scanning {selectedTechs.length} technologies for vulnerabilities...
+                Reviewing {selectedTechs.length} selected technologies for known vulnerabilities...
               </Typography>
             </Stack>
           )}

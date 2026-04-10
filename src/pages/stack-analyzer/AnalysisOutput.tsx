@@ -10,7 +10,7 @@ import Alert from '@mui/material/Alert';
 import { styled } from '@mui/material/styles';
 import { keyframes } from '@mui/system';
 import IconifyIcon from 'components/base/IconifyIcon';
-import { StackTech } from 'data/stackTechs';
+import { StackTech, TechVuln } from 'data/stackTechs';
 
 interface AnalysisOutputProps {
   selectedTechs: StackTech[];
@@ -21,6 +21,7 @@ interface ApiVulnerability {
   id: string;
   summary: string;
   severity: string;
+  isAiGenerated?: boolean;
 }
 
 interface ApiAttackInsight {
@@ -28,6 +29,9 @@ interface ApiAttackInsight {
   description: string;
   impact: string;
   firstAction: string;
+  reproTip?: string;
+  recommendation?: string;
+  isAiGenerated?: boolean;
   evidence?: Array<{ id: string; summary: string }>;
 }
 
@@ -36,7 +40,9 @@ interface ApiAnalysis {
   attacks: string[];
   attackDetails?: ApiAttackInsight[];
   fixes: string[];
+  safeValidationSteps?: string[];
   message: string;
+  scanMode?: 'LIVE_DATABASE' | 'AI_EDUCATIONAL_SCAN';
   cached?: boolean;
 }
 
@@ -116,6 +122,30 @@ const getFixes = (attacks: string[]) => {
   return Array.from(fixes);
 };
 
+const getSafeValidationSteps = (attacks: string[]) => {
+  const steps = new Set<string>([
+    'Confirm the exact package and deployed version in your lockfile, image, or artifact inventory.',
+    'Review vendor advisories to verify whether your version falls inside an affected range.',
+    'Check whether the risky feature is actually enabled or reachable in your production code path.',
+    'Patch in a test environment first, then rerun dependency and integration checks before rollout.',
+  ]);
+
+  if (attacks.includes('XSS')) {
+    steps.add('Audit every rich-content rendering sink and verify sanitization or output encoding is applied.');
+  }
+  if (attacks.includes('Injection')) {
+    steps.add('Inspect query, command, and template boundaries to ensure untrusted input is parameterized or rejected.');
+  }
+  if (attacks.includes('Auth Bypass')) {
+    steps.add('Trace authentication middleware order and confirm token or session validation on protected routes.');
+  }
+  if (attacks.includes('Path Traversal')) {
+    steps.add('Review file-serving and upload handlers to ensure normalized paths stay inside approved directories.');
+  }
+
+  return Array.from(steps);
+};
+
 const fetchFromOsvDirect = async (
   body: {
     packageName: string;
@@ -168,11 +198,13 @@ const fetchFromOsvDirect = async (
 
 const postAnalyze = async (
   body: {
-    techId?: string;
     tech: string;
+    techId?: string;
+    techName?: string;
     packageName: string;
     ecosystem: string;
     version: string;
+    fallbackVulns?: TechVuln[];
   },
   signal: AbortSignal,
 ) => {
@@ -298,9 +330,11 @@ const AnalysisOutput = ({ selectedTechs, versions }: AnalysisOutputProps) => {
               {
                 techId: tech.id,
                 tech: tech.packageName,
+                techName: tech.name,
                 packageName: tech.packageName,
                 ecosystem: tech.ecosystem,
                 version: versions[tech.id] || tech.versions[0],
+                fallbackVulns: tech.knownVulns,
               },
               controller.signal,
             );
@@ -345,7 +379,7 @@ const AnalysisOutput = ({ selectedTechs, versions }: AnalysisOutputProps) => {
   const findings = useMemo<Finding[]>(
     () =>
       selectedTechs.flatMap((tech) =>
-        (results[tech.id]?.vulnerabilities || []).map((vuln) => ({
+        (results[tech.id]?.vulnerabilities || []).map((vuln: ApiVulnerability) => ({
           ...vuln,
           tech: tech.name,
           version: versions[tech.id] || tech.versions[0],
@@ -356,13 +390,21 @@ const AnalysisOutput = ({ selectedTechs, versions }: AnalysisOutputProps) => {
   );
 
   const attacks = useMemo(
-    () => Array.from(new Set(Object.values(results).flatMap((result) => result.attacks))),
+    () => Array.from(new Set(Object.values(results).flatMap((result: ApiAnalysis) => result.attacks))),
     [results],
   );
 
   const fixes = useMemo(
-    () => Array.from(new Set(Object.values(results).flatMap((result) => result.fixes))),
+    () => Array.from(new Set(Object.values(results).flatMap((result: ApiAnalysis) => result.fixes))),
     [results],
+  );
+
+  const safeValidationSteps = useMemo(
+    () => {
+      const apiSteps = Object.values(results).flatMap((result: ApiAnalysis) => result.safeValidationSteps || []);
+      return apiSteps.length > 0 ? Array.from(new Set(apiSteps)) : getSafeValidationSteps(attacks);
+    },
+    [attacks, results],
   );
 
   const attackInsights = useMemo(
@@ -370,8 +412,8 @@ const AnalysisOutput = ({ selectedTechs, versions }: AnalysisOutputProps) => {
       const apiInsightsByAttack = new Map<string, ApiAttackInsight>();
 
       Object.values(results)
-        .flatMap((result) => result.attackDetails || [])
-        .forEach((insight) => {
+        .flatMap((result: ApiAnalysis) => result.attackDetails || [])
+        .forEach((insight: ApiAttackInsight) => {
           const existing = apiInsightsByAttack.get(insight.attack);
           if (!existing) {
             apiInsightsByAttack.set(insight.attack, insight);
@@ -401,18 +443,18 @@ const AnalysisOutput = ({ selectedTechs, versions }: AnalysisOutputProps) => {
                 : 'path';
 
         const fallbackRelatedFindings = findings
-          .filter((finding) => finding.summary.toLowerCase().includes(fallbackKeyword))
+          .filter((finding: Finding) => finding.summary.toLowerCase().includes(fallbackKeyword))
           .slice(0, 3)
-          .map((finding) => `${finding.id} (${finding.tech})`);
+          .map((finding: Finding) => `${finding.id} (${finding.tech})`);
 
         const apiInsight = apiInsightsByAttack.get(attack);
         const relatedFindings =
           apiInsight?.evidence && apiInsight.evidence.length > 0
             ? apiInsight.evidence.slice(0, 3).map((item) => item.id)
             : fallbackRelatedFindings;
-
         return {
           attack,
+          isAiGenerated: apiInsight?.isAiGenerated,
           details: {
             ...(attackDetails[attack] || {
               description: 'Potential attack path detected from vulnerability metadata.',
@@ -429,6 +471,8 @@ const AnalysisOutput = ({ selectedTechs, versions }: AnalysisOutputProps) => {
               apiInsight?.firstAction ||
               attackDetails[attack]?.firstAction ||
               'Patch vulnerable versions and harden validation controls.',
+            reproTip: apiInsight?.reproTip,
+            recommendation: apiInsight?.recommendation,
           },
           relatedFindings,
         };
@@ -438,10 +482,10 @@ const AnalysisOutput = ({ selectedTechs, versions }: AnalysisOutputProps) => {
   );
 
   const summary = {
-    critical: findings.filter((finding) => normalizeSeverity(finding.severity) === 'Critical').length,
-    high: findings.filter((finding) => normalizeSeverity(finding.severity) === 'High').length,
-    medium: findings.filter((finding) => normalizeSeverity(finding.severity) === 'Medium').length,
-    low: findings.filter((finding) => normalizeSeverity(finding.severity) === 'Low').length,
+    critical: findings.filter((finding: Finding) => normalizeSeverity(finding.severity) === 'Critical').length,
+    high: findings.filter((finding: Finding) => normalizeSeverity(finding.severity) === 'High').length,
+    medium: findings.filter((finding: Finding) => normalizeSeverity(finding.severity) === 'Medium').length,
+    low: findings.filter((finding: Finding) => normalizeSeverity(finding.severity) === 'Low').length,
   };
 
   if (loading) {
@@ -480,8 +524,24 @@ const AnalysisOutput = ({ selectedTechs, versions }: AnalysisOutputProps) => {
             <IconifyIcon icon="hugeicons:bug-01" sx={{ color: 'error.main', width: 22, height: 22 }} />
           </Box>
           <Typography variant="h6" fontWeight={700} color="text.primary">
-            Real OSV Analysis Results
+            {Object.values(results).some(r => r.scanMode === 'AI_EDUCATIONAL_SCAN') 
+              ? 'AI-Assisted Educational Analysis' 
+              : 'Real OSV Analysis Results'}
           </Typography>
+          {Object.values(results).some(r => r.scanMode === 'AI_EDUCATIONAL_SCAN') && (
+            <Chip 
+              icon={<IconifyIcon icon="hugeicons:ai-brain-05" width={14} />}
+              label="AI DEEP SCAN ACTIVE" 
+              size="small" 
+              sx={{ 
+                bgcolor: 'primary.main' + '22',
+                color: 'primary.main',
+                borderColor: 'primary.main',
+                fontWeight: 800,
+                fontSize: '0.65rem'
+              }} 
+            />
+          )}
         </Stack>
 
         <Box display="grid" gridTemplateColumns={{ xs: '1fr', sm: 'repeat(4, 1fr)' }} gap={2}>
@@ -558,7 +618,7 @@ const AnalysisOutput = ({ selectedTechs, versions }: AnalysisOutputProps) => {
           <Stack direction="row" spacing={1.5} alignItems="center">
             <IconifyIcon icon="hugeicons:sword-01" sx={{ color: 'error.main', width: 22, height: 22 }} />
             <Typography variant="h6" fontWeight={700} color="text.primary">
-              Possible Attack Types
+              Mapped Risk Patterns
             </Typography>
           </Stack>
           <Stack direction="row" flexWrap="wrap" gap={1.5}>
@@ -581,9 +641,35 @@ const AnalysisOutput = ({ selectedTechs, versions }: AnalysisOutputProps) => {
                     border: '1px solid',
                     borderColor: `${item.details.color}.main`,
                     bgcolor: `${item.details.color}.main` + '08',
+                    position: 'relative',
+                    overflow: 'hidden'
                   }}
                 >
-                  <Stack spacing={1.25}>
+                  {item.isAiGenerated && (
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: 10,
+                        right: 10,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.5,
+                        bgcolor: 'primary.main',
+                        color: 'white',
+                        px: 1,
+                        py: 0.25,
+                        borderRadius: '4px',
+                        fontSize: '0.6rem',
+                        fontWeight: 800,
+                        letterSpacing: '0.5px',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                      }}
+                    >
+                      <IconifyIcon icon="hugeicons:ai-brain-03" sx={{ width: 12, height: 12 }} />
+                      AI INSIGHT
+                    </Box>
+                  )}
+                  <Stack spacing={2}>
                     <Stack direction="row" justifyContent="space-between" alignItems="center">
                       <Typography variant="subtitle1" fontWeight={800} color="text.primary">
                         {item.attack}
@@ -593,19 +679,49 @@ const AnalysisOutput = ({ selectedTechs, versions }: AnalysisOutputProps) => {
                         label={item.relatedFindings.length > 0 ? `${item.relatedFindings.length} matched` : 'mapped'}
                         color={item.details.color}
                         variant="outlined"
+                        sx={{ mr: item.isAiGenerated ? 8 : 0 }}
                       />
                     </Stack>
+                    
                     <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }}>
                       {item.details.description}
                     </Typography>
-                    <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.7 }}>
-                      <strong>Likely impact:</strong> {item.details.impact}
-                    </Typography>
-                    <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.7 }}>
-                      <strong>First action:</strong> {item.details.firstAction}
-                    </Typography>
-                    {item.relatedFindings.length > 0 && (
+
+                    <Stack spacing={1.5}>
+                      <Box sx={{ p: 1.5, borderRadius: '6px', bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                        <Typography variant="caption" fontWeight={800} color="error.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
+                          <IconifyIcon icon="hugeicons:bug-02" sx={{ width: 14, height: 14 }} />
+                          HUNTER'S REPRO TIP
+                        </Typography>
+                        <Typography variant="body2" color="text.primary" sx={{ fontStyle: 'italic', lineHeight: 1.6 }}>
+                          {item.details.reproTip || 'No specific reproduction steps found for this pattern.'}
+                        </Typography>
+                      </Box>
+
+                      <Box sx={{ p: 1.5, borderRadius: '6px', bgcolor: 'success.main' + '11', border: '1px dashed', borderColor: 'success.main' + '44' }}>
+                        <Typography variant="caption" fontWeight={800} color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
+                          <IconifyIcon icon="hugeicons:shield-tick" sx={{ width: 14, height: 14 }} />
+                          SECURITY RECOMMENDATION
+                        </Typography>
+                        <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.6 }}>
+                          {item.details.recommendation || item.details.firstAction}
+                        </Typography>
+                      </Box>
+                    </Stack>
+
+                    <Divider />
+                    
+                    <Stack direction="column" spacing={0.5}>
+                      <Typography variant="caption" color="text.primary" fontWeight={700}>
+                        Likely Impact:
+                      </Typography>
                       <Typography variant="caption" color="text.secondary">
+                        {item.details.impact}
+                      </Typography>
+                    </Stack>
+
+                    {item.relatedFindings.length > 0 && (
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
                         Evidence: {item.relatedFindings.join(', ')}
                       </Typography>
                     )}
@@ -633,6 +749,39 @@ const AnalysisOutput = ({ selectedTechs, versions }: AnalysisOutputProps) => {
                 {fix}
               </Typography>
             </FixCard>
+          ))}
+        </Box>
+      </Stack>
+
+      <Divider sx={{ borderColor: 'divider' }} />
+
+      <Stack spacing={2.5}>
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <IconifyIcon icon="hugeicons:checkmark-circle-02" sx={{ color: 'info.main', width: 22, height: 22 }} />
+          <Typography variant="h6" fontWeight={700} color="text.primary">
+            Safe Validation Steps
+          </Typography>
+        </Stack>
+        <Alert severity="info" sx={{ borderRadius: '8px' }}>
+          This view is intentionally limited to defensive validation guidance. It does not provide exploit
+          instructions, payloads, or weaponization steps.
+        </Alert>
+        <Box display="grid" gridTemplateColumns={{ xs: '1fr', md: 'repeat(2, 1fr)' }} gap={2.5}>
+          {safeValidationSteps.map((step) => (
+            <Paper
+              key={step}
+              sx={{
+                p: 2.5,
+                borderRadius: '8px',
+                border: '1px solid',
+                borderColor: 'info.main',
+                bgcolor: 'info.main' + '08',
+              }}
+            >
+              <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.7 }}>
+                {step}
+              </Typography>
+            </Paper>
           ))}
         </Box>
       </Stack>
