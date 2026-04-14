@@ -1,257 +1,66 @@
-# StackSecure AI - DNX Command
+# 🛡️ StackSecure AI
 
-![StackSecure AI](./src/assets/images/Logo.png)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat&logo=next.js)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat&logo=typescript)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38B2AC?style=flat&logo=tailwind-css)](https://tailwindcss.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-[![Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-61DAFB?logo=react&logoColor=white)](https://react.dev/)
-[![Build Tool](https://img.shields.io/badge/Build-Vite-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
-[![Backend](https://img.shields.io/badge/Backend-Node.js%20%2B%20Express-339933?logo=node.js&logoColor=white)](https://expressjs.com/)
-[![Data Source](https://img.shields.io/badge/Data-OSV%20API-0B5FFF)](https://api.osv.dev/)
-[![License](https://img.shields.io/badge/License-Unlicensed-lightgrey)](#-license)
-
-**StackSecure AI** is a cybersecurity analysis workspace that scans selected technologies, fetches live advisory intelligence, maps possible attack vectors, and recommends practical fixes.
+**StackSecure AI** is a professional-grade Cybersecurity SaaS dashboard designed for real-time threat detection, vulnerability management, and security analysis. Built with a focus on high performance and stunning UI/UX, it provides security teams with an intuitive interface to monitor their tech stack's health.
 
 ---
 
-## Table of Contents
+## 🚀 Key Modules
 
-- [Overview](#-overview)
-- [Key Features](#-key-features)
-- [Architecture](#-architecture)
-- [Tech Stack](#-tech-stack)
-- [Project Structure](#-project-structure)
-- [Quick Start](#-quick-start)
-- [API Reference](#-api-reference)
-- [Severity Mapping](#-severity-mapping)
-- [Scripts](#-scripts)
-- [Deployment](#-deployment)
-- [Roadmap](#-roadmap)
-- [Contributing](#-contributing)
-- [License](#-license)
+- **📊 Global Threat Feed**: Real-time monitoring of live cyber threats and global security incidents.
+- **🔍 Stack Analyzer**: A guided technical workflow that analyzes your project's technology stack for known vulnerabilities.
+- **📋 Vulnerability Registry**: A comprehensive database of 25+ common vulnerabilities (CVEs) with detailed remediation steps and severity levels.
+- **💻 Attack Simulations**: Interactive, terminal-based simulations to test system resilience against common attack vectors.
 
----
+## 🛠️ Tech Stack
 
-## Overview
+- **Frontend**: Next.js 15 (App Router), React 19
+- **Styling**: Tailwind CSS with Framer Motion for smooth micro-animations.
+- **State Management**: React Context API & Modern Hooks.
+- **Visualization**: Lucide Icons & Custom SVG Dashboards.
 
-StackSecure AI helps teams validate risk in modern software stacks by turning raw vulnerability data into security insights:
+## 📖 Installation & Setup
 
-- What vulnerabilities exist for selected versions
-- Which attack classes are possible
-- What should be fixed first
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/nivas1899/stacksecure-ai.git
+   cd stacksecure-ai
+   ```
 
----
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-## Key Features
+3. **Run the development server:**
+   ```bash
+   npm run dev
+   ```
+   Open [http://localhost:3000](http://localhost:3000) with your browser to see the dashboard.
 
-- Live OSV advisory lookups across multiple ecosystems
-- Multi-source fallback strategy for stronger coverage
-- Attack type classification:
-  - `XSS`
-  - `Injection`
-  - `Auth Bypass`
-  - `Path Traversal`
-- Detailed attack insight cards with impact and first-action guidance
-- Severity normalization for mixed advisory formats
-- Clean, professional dashboard experience for analysis workflows
-
----
-
-## Architecture
-
-```mermaid
-flowchart LR
-  A["Frontend (React + Vite)"] --> B["/api/analyze (Express)"]
-  B --> C["OSV Primary Query"]
-  B --> D["Ecosystem Fallback Query"]
-  C --> E["Normalize + Dedupe + Severity Mapping"]
-  D --> E
-  E --> F["Attack Mapping + Recommended Fixes"]
-  F --> A
-```
-
----
-
-## Tech Stack
-
-- **Frontend:** React, TypeScript, MUI, Vite
-- **Backend:** Node.js, Express, CORS
-- **Security Data:** OSV API
-
----
-
-## Project Structure
+## 📂 Project Structure
 
 ```text
 .
-|-- server/
-|   |-- index.js      # API server + vulnerability processing
-|   `-- dev.js        # Runs API + Vite in one command
-|-- src/
-|   |-- pages/
-|   |   `-- stack-analyzer/
-|   |       |-- index.tsx
-|   |       |-- TechGrid.tsx
-|   |       `-- AnalysisOutput.tsx
-|   `-- data/
-|       `-- stackTechs.ts
-|-- package.json
-`-- vite.config.ts
+├── src/
+│   ├── components/    # Reusable UI components (Sidebar, Charts, Cards)
+│   ├── app/           # Next.js App Router (Dashboard, Analyzer, Registry)
+│   └── styles/        # Global CSS and Tailwind configurations
+├── public/            # Static assets and icons
+└── package.json       # Project dependencies and scripts
 ```
 
----
+## 🤝 Contributing
 
-## Quick Start
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-### Prerequisites
+## 📄 License
 
-- Node.js `18+` (recommended `20+`)
-- npm `9+`
-
-### Install
-
-```bash
-npm install
-```
-
-### Start Full App (Frontend + API)
-
-```bash
-npm run dev
-```
-
-- Frontend: `http://localhost:5173`
-- API: `http://localhost:4000`
-
-### API Only
-
-```bash
-npm run api
-```
-
-### Production Build
-
-```bash
-npm run build
-```
+Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
-
-## API Reference
-
-### `POST /api/analyze`
-
-Analyze one technology/version pair and return vulnerabilities, attack mapping, and fixes.
-
-**Request**
-
-```json
-{
-  "techId": "nextjs",
-  "tech": "next",
-  "packageName": "next",
-  "ecosystem": "npm",
-  "version": "14.0.4"
-}
-```
-
-**Response**
-
-```json
-{
-  "vulnerabilities": [
-    {
-      "id": "GHSA-xxxx-xxxx-xxxx",
-      "summary": "Advisory summary",
-      "severity": "HIGH"
-    }
-  ],
-  "attacks": ["XSS", "Injection"],
-  "attackDetails": [
-    {
-      "attack": "XSS",
-      "description": "Cross-site scripting details",
-      "impact": "Likely impact",
-      "firstAction": "Immediate remediation step",
-      "evidence": [
-        {
-          "id": "GHSA-xxxx-xxxx-xxxx",
-          "summary": "Matched advisory"
-        }
-      ]
-    }
-  ],
-  "fixes": ["Update to latest version", "Sanitize inputs"],
-  "dataSources": [
-    {
-      "source": "OSV",
-      "packageName": "next",
-      "ecosystem": "npm",
-      "note": "Primary ecosystem query",
-      "count": 17
-    }
-  ],
-  "message": "Vulnerabilities found and mapped to security insights."
-}
-```
-
----
-
-## Severity Mapping
-
-- Uses advisory-provided severity when available (`LOW`, `MODERATE`, `HIGH`, `CRITICAL`)
-- Derives severity from CVSS v3 vectors when plain labels are missing
-- Includes runtime fallback logic for Node.js advisories (Debian package source path)
-
----
-
-## Scripts
-
-- `npm run dev` - Start frontend + backend
-- `npm run web` - Start frontend only
-- `npm run api` - Start backend only
-- `npm run build` - Type-check and production build
-- `npm run preview` - Preview built frontend
-- `npm run lint` - Run lint checks
-
----
-
-## Deployment
-
-### GitHub
-
-```bash
-git push -u origin main
-```
-
-### Vercel
-
-- Import this repository in Vercel
-- Framework preset: `Vite`
-- Build command: `npm run build`
-- Output directory: `dist`
-- Configure backend/API availability for production analysis requests
-
----
-
-## Roadmap
-
-- Additional advisory providers beyond OSV
-- Persistent cache layer (Redis)
-- API auth + rate limiting
-- Exportable reports (JSON/PDF)
-- Team-level audit and policy workflows
-
----
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit changes with clear messages
-4. Open a pull request
-
----
-
-## License
-
-This repository is currently **unlicensed**.  
-Add a `LICENSE` file before public distribution or commercial use.
+Created with ❤️ by [nivas1899](https://github.com/nivas1899)
